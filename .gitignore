@@ -1,0 +1,18 @@
+# Virtual environments & Python artifacts
+.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+
+# Tool caches & test coverage
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Local sec-gate scan outputs
+sec-gate-report.*
+sec-gate-verdict.*

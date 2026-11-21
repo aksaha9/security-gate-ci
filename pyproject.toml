@@ -1,0 +1,41 @@
+[project]
+name = "security-gate-ci"
+version = "0.1.0"
+description = "Platform-agnostic, pluggable CI/CD security compliance gate"
+readme = "README.md"
+license = "MIT"
+authors = [{ name = "Ashish Kumar Saha", email = "aksaha9@users.noreply.github.com" }]
+requires-python = ">=3.12"
+dependencies = ["sec-gate"]
+
+[project.urls]
+Homepage = "https://github.com/aksaha9/security-gate-ci"
+Repository = "https://github.com/aksaha9/security-gate-ci"
+Documentation = "https://github.com/aksaha9/security-gate-ci/blob/main/HOWTO.md"
+
+[tool.uv.sources]
+sec-gate = { workspace = true }
+
+[tool.uv.workspace]
+members = ["packages/*"]
+
+[dependency-groups]
+dev = [
+  "pytest>=8.3,<9",
+  "ruff>=0.8,<1",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+src = ["packages/sec-gate/src", "packages/sec-gate/tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "B", "SIM", "S", "RUF"]
+
+[tool.ruff.lint.per-file-ignores]
+"**/tests/**/*.py" = ["S101", "S105", "S106", "S108", "S603"]
+
+[tool.pytest.ini_options]
+testpaths = ["packages/sec-gate/tests"]
+addopts = ["-ra", "--strict-markers", "--strict-config"]

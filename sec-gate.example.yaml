@@ -1,0 +1,73 @@
+# Example policy configuration for sec-gate.
+# Copy to `sec-gate.yaml` in your repository root or pass `--config path/to/sec-gate.yaml`.
+version: "1"
+
+# Plugin execution strategy: `parallel` or `sequential`
+execution_mode: parallel
+max_workers: 4
+
+policy:
+  # `enforce`: exits 1 when blocking thresholds are breached, 0 when passing
+  # `warn`: exits 10 when findings exist (non-blocking warning), 0 when clean
+  mode: enforce
+
+  # Minimum severity that triggers a failure for non-secret findings (CRITICAL, HIGH, MEDIUM, LOW, INFO)
+  fail_on_severity: HIGH
+
+  # Secret validation policy controls
+  # Note: `plugins.kingfisher.validate_secrets` defaults to `false` to prevent unsolicited
+  # outbound API probing against external providers or unauthorized/third-party credentials.
+  # With `validate_secrets: false`, findings have validation_status=NOT_ATTEMPTED, so set
+  # `fail_on_unverified_secret: true` if you want static matches to block offline.
+  # Disclaimer: When `validate_secrets` is `false` (and due to static scanning limits),
+  # any undetected or unblocked secret leakage remains solely the responsibility of the
+  # consuming repository/operator, not security-gate-ci.
+  fail_on_verified_secret: true
+  fail_on_unverified_secret: false
+  fail_on_inactive_secret: false
+
+  # Fail gate if an enabled plugin errors (e.g. missing binary or scan crash)
+  fail_on_plugin_error: true
+
+  # Maximum finding rows rendered in MR/PR Markdown comments
+  max_findings_in_comment: 50
+
+  # Allowlists by finding fingerprint or rule ID
+  ignore_fingerprints: []
+  ignore_rules: []
+
+reporters:
+  console: true
+  post_comment: true
+  comment_marker: "<!-- sec-gate-verdict -->"
+  json_output: null
+  markdown_output: null
+
+plugins:
+  kingfisher:
+    enabled: true
+    binary: kingfisher
+    # Defaults to `false` (passes `--no-validate`) so CI runs never probe third-party APIs
+    # without explicit operator opt-in. Enable `true` only on repositories you are authorized
+    # to test against live provider endpoints.
+    validate_secrets: false
+    confidence: medium
+    git_history: none
+    timeout_seconds: 300
+    exclude_paths:
+      - "*.lock"
+    extra_args: []
+
+  injection:
+    enabled: true
+    checks:
+      - sqli
+      - cmdi
+      - xss
+    exclude_paths:
+      - ".git"
+      - ".venv"
+      - "node_modules"
+      - "dist"
+      - "build"
+    max_file_size_kb: 1024

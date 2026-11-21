@@ -1,0 +1,48 @@
+# Reusable GitLab CI template for security-gate-ci (`sec-gate`).
+# Usage in consumer `.gitlab-ci.yml`:
+#   include:
+#     - remote: 'https://raw.githubusercontent.com/aksaha9/security-gate-ci/main/ci-templates/gitlab/sec-gate.gitlab-ci.yml'
+
+.sec-gate-base:
+  stage: test
+  image:
+    name: "${SEC_GATE_IMAGE}"
+    entrypoint: [""]
+  variables:
+    SEC_GATE_IMAGE: "ghcr.io/aksaha9/security-gate-ci/sec-gate:latest"
+    SEC_GATE_TARGET: "."
+    SEC_GATE_CONFIG: ""
+    SEC_GATE_MODE: "enforce"
+    SEC_GATE_POST_COMMENT: "true"
+    SEC_GATE_EXTRA_ARGS: ""
+  script:
+    - |
+      set +e
+      ARGS="run ${SEC_GATE_TARGET} --mode ${SEC_GATE_MODE} --json-out sec-gate-verdict.json --markdown-out sec-gate-verdict.md"
+      if [ -n "${SEC_GATE_CONFIG}" ]; then
+        ARGS="${ARGS} --config ${SEC_GATE_CONFIG}"
+      fi
+      if [ "${SEC_GATE_POST_COMMENT}" = "false" ]; then
+        ARGS="${ARGS} --no-comment"
+      fi
+      if [ -n "${SEC_GATE_EXTRA_ARGS}" ]; then
+        ARGS="${ARGS} ${SEC_GATE_EXTRA_ARGS}"
+      fi
+      sec-gate ${ARGS}
+      EXIT_CODE=$?
+      exit "${EXIT_CODE}"
+  allow_failure:
+    exit_codes:
+      - 10
+  artifacts:
+    when: always
+    expire_in: 14 days
+    paths:
+      - sec-gate-verdict.json
+      - sec-gate-verdict.md
+
+sec-gate:
+  extends: .sec-gate-base
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'

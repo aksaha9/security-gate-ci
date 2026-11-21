@@ -1,0 +1,137 @@
+# Reusable GitHub Actions workflow for security-gate-ci (`sec-gate`).
+# Usage in consumer `.github/workflows/security-gate.yml`:
+#   jobs:
+#     sec-gate:
+#       uses: aksaha9/security-gate-ci/.github/workflows/sec-gate.workflow.yml@main
+#       secrets:
+#         github-token: ${{ secrets.GITHUB_TOKEN }}
+
+name: sec-gate
+
+on:
+  workflow_call:
+    inputs:
+      image:
+        description: "Immutable container image providing sec-gate and kingfisher"
+        required: false
+        type: string
+        default: "ghcr.io/aksaha9/security-gate-ci/sec-gate:latest"
+      target:
+        description: "Target path inside repository workspace to scan"
+        required: false
+        type: string
+        default: "."
+      config-path:
+        description: "Optional path to sec-gate YAML policy file"
+        required: false
+        type: string
+        default: ""
+      mode:
+        description: "Enforcement mode (`enforce` or `warn`)"
+        required: false
+        type: string
+        default: "enforce"
+      fail-on-severity:
+        description: "Minimum blocking severity (CRITICAL, HIGH, MEDIUM, LOW, INFO)"
+        required: false
+        type: string
+        default: "HIGH"
+      post-comment:
+        description: "Post or update an idempotent PR verdict comment"
+        required: false
+        type: boolean
+        default: true
+      upload-artifacts:
+        description: "Upload JSON and Markdown verdict reports as workflow artifacts"
+        required: false
+        type: boolean
+        default: true
+    secrets:
+      github-token:
+        description: "GitHub token used to post/update PR verdict comments"
+        required: false
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  sec-gate:
+    name: Security Compliance Gate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run sec-gate container
+        id: scan
+        shell: bash
+        env:
+          SEC_GATE_IMAGE: ${{ inputs.image }}
+          SEC_GATE_TARGET: ${{ inputs.target }}
+          SEC_GATE_CONFIG_PATH: ${{ inputs.config-path }}
+          SEC_GATE_MODE: ${{ inputs.mode }}
+          SEC_GATE_FAIL_ON_SEVERITY: ${{ inputs.fail-on-severity }}
+          SEC_GATE_POST_COMMENT: ${{ inputs.post-comment }}
+          SEC_GATE_GITHUB_TOKEN: ${{ secrets.github-token || github.token }}
+        run: |
+          set +e
+          CMD=(
+            run "${SEC_GATE_TARGET}"
+            --mode "${SEC_GATE_MODE}"
+            --fail-on-severity "${SEC_GATE_FAIL_ON_SEVERITY}"
+            --json-out sec-gate-verdict.json
+            --markdown-out sec-gate-verdict.md
+          )
+          if [ -n "${SEC_GATE_CONFIG_PATH}" ]; then
+            CMD+=(--config "${SEC_GATE_CONFIG_PATH}")
+          fi
+          if [ "${SEC_GATE_POST_COMMENT}" != "true" ]; then
+            CMD+=(--no-comment)
+          fi
+
+          EVENT_MOUNT=()
+          EVENT_ENV=()
+          if [ -n "${GITHUB_EVENT_PATH:-}" ] && [ -f "${GITHUB_EVENT_PATH}" ]; then
+            EVENT_MOUNT=(-v "${GITHUB_EVENT_PATH}:/tmp/github-event.json:ro")
+            EVENT_ENV=(-e "GITHUB_EVENT_PATH=/tmp/github-event.json")
+          fi
+
+          docker run --rm \
+            -v "${GITHUB_WORKSPACE}:/workspace" \
+            -w /workspace \
+            "${EVENT_MOUNT[@]}" \
+            -e GITHUB_ACTIONS="${GITHUB_ACTIONS}" \
+            -e GITHUB_API_URL="${GITHUB_API_URL}" \
+            -e GITHUB_REPOSITORY="${GITHUB_REPOSITORY}" \
+            -e GITHUB_REF="${GITHUB_REF}" \
+            -e SEC_GATE_GITHUB_TOKEN="${SEC_GATE_GITHUB_TOKEN}" \
+            -e SEC_GATE_POST_COMMENT="${SEC_GATE_POST_COMMENT}" \
+            "${EVENT_ENV[@]}" \
+            "${SEC_GATE_IMAGE}" \
+            "${CMD[@]}"
+          EXIT_CODE=$?
+
+          if [ -f sec-gate-verdict.md ]; then
+            cat sec-gate-verdict.md >> "${GITHUB_STEP_SUMMARY}"
+          fi
+
+          if [ "${EXIT_CODE}" -eq 10 ]; then
+            echo "::warning title=sec-gate::Security findings detected in warn mode (exit 10)."
+            exit 0
+          elif [ "${EXIT_CODE}" -ne 0 ]; then
+            echo "::error title=sec-gate::Security compliance gate failed with exit code ${EXIT_CODE}."
+            exit "${EXIT_CODE}"
+          fi
+
+      - name: Upload sec-gate verdict artifacts
+        if: always() && inputs.upload-artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: sec-gate-verdict
+          if-no-files-found: ignore
+          path: |
+            sec-gate-verdict.json
+            sec-gate-verdict.md
